@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management System</title>
+    <meta name="description" content="Modern user management dashboard with CRUD operations">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container">
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <div class="logo">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="header-text">
+                    <h1>User Management</h1>
+                    <p>Manage your application users</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="refreshBtn" class="btn btn-outline">
+                    <i class="fas fa-refresh"></i>
+                    Refresh
+                </button>
+                <button id="addUserBtn" class="btn btn-primary">
+                    <i class="fas fa-plus"></i>
+                    Add User
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-card">
+            <div class="stats-content">
+                <div class="stats-number" id="userCount">0</div>
+                <div class="stats-label">Total Users</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- User Form (Hidden by default) -->
+    <div id="userForm" class="form-container" style="display: none;">
+        <div class="form-card">
+            <div class="form-header">
+                <h2>
+                    <i class="fas fa-user-plus"></i>
+                    <span id="formTitle">Add New User</span>
+                </h2>
+            </div>
+            <form id="userFormElement">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" placeholder="Enter username" required>
+                    <div class="error-message" id="usernameError"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Enter password" required>
+                    <div class="error-message" id="passwordError"></div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i>
+                        <span id="submitText">Create User</span>
+                    </button>
+                    <button type="button" id="cancelBtn" class="btn btn-outline">
+                        <i class="fas fa-times"></i>
+                        Cancel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="loading-container">
+        <div class="loading-content">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Loading users...</p>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-container" style="display: none;">
+        <div class="empty-content">
+            <i class="fas fa-users"></i>
+            <h3>No Users Found</h3>
+            <p>Get started by creating your first user.</p>
+            <button id="addFirstUserBtn" class="btn btn-primary">
+                <i class="fas fa-plus"></i>
+                Add First User
+            </button>
+        </div>
+    </div>
+
+    <!-- Users Grid -->
+    <div id="usersGrid" class="users-grid"></div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>
+                <i class="fas fa-trash text-danger"></i>
+                Delete User
+            </h3>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete the user "<span id="deleteUsername"></span>"? This action cannot be undone.</p>
+        </div>
+        <div class="modal-actions">
+            <button id="confirmDeleteBtn" class="btn btn-danger">Delete User</button>
+            <button id="cancelDeleteBtn" class="btn btn-outline">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toastContainer" class="toast-container"></div>
+
+<script>
+    // API Configuration
+    const API_BASE_URL = 'http://localhost:8080/user';
+
+    // Global Variables
+    let users = [];
+    let editingUserId = null;
+    let deleteUserId = null;
+
+    // DOM Elements
+    const usersGrid = document.getElementById('usersGrid');
+    const userForm = document.getElementById('userForm');
+    const userFormElement = document.getElementById('userFormElement');
+    const loadingState = document.getElementById('loadingState');
+    const emptyState = document.getElementById('emptyState');
+    const deleteModal = document.getElementById('deleteModal');
+    const toastContainer = document.getElementById('toastContainer');
+
+    // Initialize App
+    document.addEventListener('DOMContentLoaded', function() {
+        setupEventListeners();
+        fetchUsers();
+    });
+
+    // Event Listeners
+    function setupEventListeners() {
+        document.getElementById('addUserBtn').addEventListener('click', showAddUserForm);
+        document.getElementById('addFirstUserBtn').addEventListener('click', showAddUserForm);
+        document.getElementById('refreshBtn').addEventListener('click', fetchUsers);
+        document.getElementById('cancelBtn').addEventListener('click', hideUserForm);
+        document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+        document.getElementById('cancelDeleteBtn').addEventListener('click', hideDeleteModal);
+        userFormElement.addEventListener('submit', handleFormSubmit);
+
+        // Close modal when clicking outside
+        deleteModal.addEventListener('click', function(e) {
+            if (e.target === deleteModal) {
+                hideDeleteModal();
+            }
+        });
+    }
+
+    // API Functions
+    async function fetchUsers() {
+        try {
+            showLoading();
+            const response = await fetch(API_BASE_URL);
+            if (!response.ok) throw new Error('Failed to fetch users');
+
+            users = await response.json();
+            hideLoading();
+            renderUsers();
+            updateUserCount();
+        } catch (error) {
+            hideLoading();
+            showToast('Failed to fetch users. Please check your backend connection.', 'error');
+            console.error('Error fetching users:', error);
+        }
+    }
+
+    async function createUser(userData) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(userData)
+            });
+            if (!response.ok) throw new Error('Failed to create user');
+
+            const newUser = await response.json();
+            users.unshift(newUser);
+            renderUsers();
+            updateUserCount();
+            showToast('User created successfully!', 'success');
+            return newUser;
+        } catch (error) {
+            showToast('Failed to create user. Please try again.', 'error');
+            throw error;
+        }
+    }
+
+    async function updateUser(id, userData) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(userData)
+            });
+            if (!response.ok) throw new Error('Failed to update user');
+
+            const updatedUser = await response.json();
+            const index = users.findIndex(user => user.id === id);
+            if (index !== -1) {
+                users[index] = updatedUser;
+                renderUsers();
+            }
+            showToast('User updated successfully!', 'success');
+            return updatedUser;
+        } catch (error) {
+            showToast('Failed to update user. Please try again.', 'error');
+            throw error;
+        }
+    }
+
+    async function deleteUser(id) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/${id}`, {
+                method: 'DELETE'
+            });
+            if (!response.ok) throw new Error('Failed to delete user');
+
+            users = users.filter(user => user.id !== id);
+            renderUsers();
+            updateUserCount();
+            showToast('User deleted successfully!', 'success');
+        } catch (error) {
+            showToast('Failed to delete user. Please try again.', 'error');
+            throw error;
+        }
+    }
+
+    // UI Functions
+    function renderUsers() {
+        if (users.length === 0) {
+            usersGrid.style.display = 'none';
+            emptyState.style.display = 'block';
+            return;
+        }
+
+        emptyState.style.display = 'none';
+        usersGrid.style.display = 'grid';
+
+        usersGrid.innerHTML = users.map(user => `
+                <div class="user-card">
+                    <div class="user-card-header">
+                        <div class="user-info">
+                            <div class="user-avatar">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <div class="user-details">
+                                <h3>${escapeHtml(user.username)}</h3>
+                                <span class="user-id">ID: ${user.id}</span>
+                            </div>
+                        </div>
+                        <div class="user-actions">
+                            <button class="btn-icon" onclick="editUser(${user.id})" title="Edit User">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn-icon btn-danger" onclick="showDeleteModal(${user.id}, '${escapeHtml(user.username)}')" title="Delete User">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    ${user.date ? `
+                        <div class="user-card-body">
+                            <div class="user-date">
+                                <i class="fas fa-calendar"></i>
+                                Created: ${formatDate(user.date)}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+    }
+
+    function showAddUserForm() {
+        editingUserId = null;
+        document.getElementById('formTitle').textContent = 'Add New User';
+        document.getElementById('submitText').textContent = 'Create User';
+        userFormElement.reset();
+        clearErrors();
+        userForm.style.display = 'block';
+        document.getElementById('username').focus();
+    }
+
+    function editUser(id) {
+        const user = users.find(u => u.id === id);
+        if (!user) return;
+
+        editingUserId = id;
+        document.getElementById('formTitle').textContent = 'Edit User';
+        document.getElementById('submitText').textContent = 'Update User';
+        document.getElementById('username').value = user.username;
+        document.getElementById('password').value = user.password;
+        clearErrors();
+        userForm.style.display = 'block';
+        document.getElementById('username').focus();
+    }
+
+    function hideUserForm() {
+        userForm.style.display = 'none';
+        editingUserId = null;
+        userFormElement.reset();
+        clearErrors();
+    }
+
+    function showDeleteModal(id, username) {
+        deleteUserId = id;
+        document.getElementById('deleteUsername').textContent = username;
+        deleteModal.style.display = 'flex';
+    }
+
+    function hideDeleteModal() {
+        deleteModal.style.display = 'none';
+        deleteUserId = null;
+    }
+
+    function showLoading() {
+        loadingState.style.display = 'flex';
+        usersGrid.style.display = 'none';
+        emptyState.style.display = 'none';
+    }
+
+    function hideLoading() {
+        loadingState.style.display = 'none';
+    }
+
+    function updateUserCount() {
+        document.getElementById('userCount').textContent = users.length;
+    }
+
+    // Form Handling
+    async function handleFormSubmit(e) {
+        e.preventDefault();
+
+        const formData = new FormData(e.target);
+        const userData = {
+            username: formData.get('username').trim(),
+            password: formData.get('password').trim()
+        };
+
+        if (!validateForm(userData)) return;
+
+        try {
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            submitBtn.disabled = true;
+
+            if (editingUserId) {
+                await updateUser(editingUserId, userData);
+            } else {
+                await createUser(userData);
+            }
+
+            hideUserForm();
+        } catch (error) {
+            console.error('Form submission error:', error);
+        } finally {
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.innerHTML = editingUserId ?
+                '<i class="fas fa-save"></i> Update User' :
+                '<i class="fas fa-save"></i> Create User';
+            submitBtn.disabled = false;
+        }
+    }
+
+    function validateForm(userData) {
+        clearErrors();
+        let isValid = true;
+
+        if (!userData.username) {
+            showError('usernameError', 'Username is required');
+            isValid = false;
+        } else if (userData.username.length < 3) {
+            showError('usernameError', 'Username must be at least 3 characters');
+            isValid = false;
+        }
+
+        if (!userData.password) {
+            showError('passwordError', 'Password is required');
+            isValid = false;
+        } else if (userData.password.length < 6) {
+            showError('passwordError', 'Password must be at least 6 characters');
+            isValid = false;
+        }
+
+        return isValid;
+    }
+
+    function showError(elementId, message) {
+        document.getElementById(elementId).textContent = message;
+    }
+
+    function clearErrors() {
+        document.getElementById('usernameError').textContent = '';
+        document.getElementById('passwordError').textContent = '';
+    }
+
+    async function confirmDelete() {
+        if (!deleteUserId) return;
+
+        try {
+            const btn = document.getElementById('confirmDeleteBtn');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+            btn.disabled = true;
+
+            await deleteUser(deleteUserId);
+            hideDeleteModal();
+        } catch (error) {
+            console.error('Delete error:', error);
+        } finally {
+            const btn = document.getElementById('confirmDeleteBtn');
+            btn.innerHTML = 'Delete User';
+            btn.disabled = false;
+        }
+    }
+
+    // Utility Functions
+    function formatDate(dateString) {
+        return new Date(dateString).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerHTML = `
+                <div class="toast-content">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+
+        toastContainer.appendChild(toast);
+
+        // Trigger animation
+        setTimeout(() => toast.classList.add('show'), 100);
+
+        // Remove after 5 seconds
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toastContainer.removeChild(toast), 300);
+        }, 5000);
+    }
+</script>
+</body>
+</html>
