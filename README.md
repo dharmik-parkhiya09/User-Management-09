@@ -48,26 +48,18 @@ The app allows users to **Add, View, Update, and Delete** user records with a cl
     Edit src/main/resources/application.properties with your MySQL credentials:
 
      spring.datasource.url=jdbc:mysql://localhost:3306/userdb
+   
      spring.datasource.username=root
+   
      spring.datasource.password=yourpassword
+   
      spring.jpa.hibernate.ddl-auto=update
 
-3.  **Run the Application**
+4.  **Run the Application**
        In bash : mvn spring-boot:run
 
-4. **Add url to browser**
+5. **Add url to browser**
        http://localhost:8080
-
-📂 Project Structure
-
-UserManegmentApp/
- ├── src/main/java/...       # Spring Boot backend
- ├── src/main/resources/
- │    ├── static/            # CSS, JS
- │    ├── templates/         # HTML pages
- │    └── application.properties
- ├── pom.xml                 # Maven dependencies
- └── README.md               # Project documentation
 
  📜 License
    This project is licensed under the MIT License.
